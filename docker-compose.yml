@@ -1,0 +1,46 @@
+version: "3.8"
+services:
+    db:
+        image: "kartoza/postgis:12.0"
+        container_name: "hh_2po_work"
+        shm_size: 1g
+        environment:
+            - POSTGRES_USER=dark
+            - POSTGRES_PASSWORD=dark68;111;110;105
+            - POSTGRES_DB=darkdb
+        ports:
+            - "5432:5432"
+        networks:
+            segments:
+                ipv4_address: 192.168.2.2
+    notebook:
+        image: "jupyter/scipy-notebook"
+        container_name: "notebook"
+        environment:
+            - JUPYTER_ENABLE_LAB=yes
+        ports:
+            - "8888:8888"
+        volumes:
+            - $PWD/notebooks:/home/jovyan/work
+        networks:
+            segments:
+                ipv4_address: 192.168.2.3
+    # jnotebook:
+    #     image: "auchida/ijulia"
+    #     container_name: "jnotebook"
+    #     environment:
+    #         - JUPYTER_ENABLE_LAB=yes
+    #     ports:
+    #         - "8889:8888"
+    #     volumes:
+    #         - $PWD/notebooks:/data
+    #     networks:
+    #         segments:
+    #             ipv4_address: 192.168.1.4
+
+networks:
+    analitica:
+      driver: bridge
+      ipam:
+       config:
+         - subnet: 192.168.2.0/24
