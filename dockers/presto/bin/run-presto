@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -xeuo pipefail
+
+echo "hive.metastore.glue.aws-access-key=${access_key}" | tee -a /usr/lib/presto/default/etc/catalog/hive.properties
+echo "hive.metastore.glue.aws-secret-key=${secret_key}" | tee -a /usr/lib/presto/default/etc/catalog/hive.properties
+echo "hive.metastore.glue.region=${region}" | tee -a /usr/lib/presto/default/etc/catalog/hive.properties
+
+
+if [[ ! -d /usr/lib/presto/etc ]]; then
+    if [[ -d /etc/presto ]]; then
+        ln -s /etc/presto /usr/lib/presto/etc
+    else
+        ln -s /usr/lib/presto/default/etc /usr/lib/presto/etc
+    fi
+fi
+
+set +e
+grep -s -q 'node.id' /usr/lib/presto/etc/node.properties
+NODE_ID_EXISTS=$?
+set -e
+
+NODE_ID=""
+if [[ ${NODE_ID_EXISTS} != 0 ]] ; then
+    NODE_ID="-Dnode.id=${HOSTNAME}"
+fi
+
+exec /usr/lib/presto/bin/launcher run ${NODE_ID} "$@"
