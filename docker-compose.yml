@@ -1,0 +1,212 @@
+#
+# Mini infra to analitica
+#
+
+version: "3.8"
+
+x-airflow-common:
+    &airflow-common
+    image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.0.1}
+    environment:
+        &airflow-common-env
+        AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+        AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://analitica:analitica@192.168.2.2:5432/analitica
+        AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://analitica:analitica@192.168.2.2:5432/analitica
+        AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+        AIRFLOW__CORE__FERNET_KEY: ''
+        AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+        AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
+    volumes:
+        - ./volumenes/dags:/opt/airflow/dags
+        - ./volumenes/logs:/opt/airflow/logs
+        - ./volumenes/plugins:/opt/airflow/plugins
+    user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-50000}"
+    depends_on:
+        redis:
+            condition: service_healthy
+        db:
+            condition: service_healthy
+
+services:
+    db:
+        image: "kartoza/postgis:12.0"
+        container_name: "hh_2po_work"
+        shm_size: 1g
+        environment:
+            - POSTGRES_USER=analitica
+            - POSTGRES_PASSWORD=analitica
+            - POSTGRES_DB=analitica
+        ports:
+            - "5432:5432"
+        healthcheck:
+            test: ["CMD", "pg_isready", "-U", "analitica"]
+            interval: 5s
+            retries: 5
+        restart: always
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.2
+    
+    pg_admin:
+        image: "dpage/pgadmin4"
+        container_name: "postgres_admin"
+        environment:
+            - PGADMIN_LISTEN_PORT=5050
+            - PGADMIN_DEFAULT_EMAIL=${email}
+            - PGADMIN_DEFAULT_PASSWORD=${analitica_pass}
+        ports:
+            - "5050:5050"
+        restart: always
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.3
+    
+    notebook:
+        build: dockers/jupyter/.
+        container_name: "notebook"
+        environment:
+            - JUPYTER_ENABLE_LAB=yes
+        ports:
+            - "8888:8888"
+        volumes:
+            - $PWD/notebooks:/home/jovyan/work
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.4
+
+    rabbitmq:
+        build: dockers/rabbitmq/.
+        container_name: "rabbit"
+        environment:
+            - RABBITMQ_DEFAULT_USER=analitica
+            - RABBITMQ_DEFAULT_PASS=analitica
+            - RABBITMQ_DEFAULT_VHOST=analitica
+        ports:
+            - "15672:15672"
+            - "5672:5672"
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.5
+
+    mongo:
+        image: "mongo:4.4.4-bionic"
+        container_name: "mongo"
+        restart: always
+        environment:
+            - MONGO_INITDB_ROOT_USERNAME=analitica
+            - MONGO_INITDB_ROOT_PASSWORD=analitica
+        ports:
+            - "27017:27017"
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.6
+
+    mongo-express-admin:
+        image: "mongo-express:0.54.0"
+        container_name: "mongoui-admin"
+        restart: always
+        ports:
+            - "8081:8081"
+        environment: 
+            - ME_CONFIG_MONGODB_ENABLE_ADMIN=true
+            - ME_CONFIG_MONGODB_ADMINUSERNAME=analitica
+            - ME_CONFIG_MONGODB_ADMINPASSWORD=analitica
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.7
+    
+    presto:
+        build: 
+            context: dockers/presto/.
+            args:
+                - access_key=${AWS_ACCESS_KEY_ID}
+                - secret_key=${AWS_SECRET_KEY}
+        container_name: "presto"
+        ports:
+            - "9090:9090"
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.8
+
+    redis:
+        image: "redis:6.0.10-buster"
+        ports:
+            - 6379:6379
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 30s
+            retries: 50
+        restart: always
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.9
+
+    airflow-webserver:
+        <<: *airflow-common
+        command: webserver
+        ports:
+            - 8080:8080
+        healthcheck:
+            test: ["CMD", "curl", "--fail", "http://192.168.2.10:8080/health"]
+            interval: 10s
+            timeout: 10s
+            retries: 5
+        restart: always
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.10
+
+    airflow-scheduler:
+        <<: *airflow-common
+        command: scheduler
+        restart: always
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.12
+
+    airflow-worker:
+        <<: *airflow-common
+        command: celery worker
+        restart: always
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.13
+
+    airflow-init:
+        <<: *airflow-common
+        command: version
+        environment:
+            <<: *airflow-common-env
+            _AIRFLOW_DB_UPGRADE: 'true'
+            _AIRFLOW_WWW_USER_CREATE: 'true'
+            _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-analitica}
+            _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-analitica}
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.14
+
+    flower:
+        <<: *airflow-common
+        command: celery flower
+        ports:
+            - 5555:5555
+        healthcheck:
+            test: ["CMD", "curl", "--fail", "http://192.168.2.15:5555/"]
+            interval: 10s
+            timeout: 10s
+            retries: 5
+        restart: always
+        networks:
+            analitica:
+                ipv4_address: 192.168.2.15
+
+networks:
+    analitica:
+      driver: bridge
+      ipam:
+       config:
+         - subnet: 192.168.2.0/24
+
+volumes:
+  postgres-db-volume:
