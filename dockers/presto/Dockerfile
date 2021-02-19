@@ -49,7 +49,7 @@ COPY default/ /usr/lib/presto/default
 RUN chown -R presto:presto /usr/lib/presto
 RUN ls -la /usr/bin/presto
 
-EXPOSE 8080
+EXPOSE 9090
 USER presto:presto
 ENV LANG en_US.UTF-8
 CMD [ "/usr/lib/presto/bin/run-presto" ]
